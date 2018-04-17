@@ -129,7 +129,7 @@ namespace svm_kernel {
         kernel_type *kd = (kernel_type *) &alpha_j_diff[1]; // diagonal elements for kernel matrix
 
         //index, f value and alpha for each instance
-        int tid = threadIdx.x;
+        int tid = get_local_id(0);
         int wsi = working_set[tid];
         kd[tid] = k_mat_diag[wsi];
         float_type y = label[wsi];
