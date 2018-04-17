@@ -53,6 +53,33 @@ const int NUM_BLOCKS = 32 * 56;
        i++)
 #endif
 
+#ifdef USE_OPENCL
+
+#include "CL/cl.h"
+
+#define OPENCL_CHECK(err) checkSuccess((err), __FILE__, __LINE__)
+inline void checkSuccess(cl_int err, const char* file, int line){
+  if(err != CL_SUCCESS){
+    printf("OpenCL Error: %s -- %s : %d\n", getErrorString(err), file, line);
+    exit(1);
+  }
+}
+
+#define OPENCL_SAFE_KERNEL_LAUNCH(kernel_name, command_queue, work_dim, global_work_offset, ...) \
+    OPENCL_CHECK(clEnqueueNDRangeKernel(command_queue, kernel_name, work_dim, global_work_offset, NUM_BLOCKS*BLOCK_SIZE, BLOCK_SIZE, 0, NULL, NULL)); \
+    OPENCL_CHECK(clFinish(command_queue)); \
+    // OPENCL_CHECK(clReleaseKernel(kernel_name));
+#define KERNEL_LOOP(i, n) \
+  for (int i = get_group_id(0); \
+       i < (n); \
+       i += get_global_size(0))
+#else
+#define KERNEL_LOOP(i, n) \
+  for (int i = 0; \
+       i < (n); \
+       i++)
+#endif
+
 #define NO_GPU \
 LOG(FATAL)<<"Cannot use GPU when compiling without GPU"
 #endif //THUNDERSVM_COMMON_H
