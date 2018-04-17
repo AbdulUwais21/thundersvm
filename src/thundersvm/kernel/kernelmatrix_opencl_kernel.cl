@@ -8,8 +8,8 @@
 
 namespace svm_kernel {
     __kernel void
-    kernel_get_working_set_ins(const kernel_type *val, const int *col_ind, const int *row_ptr, const int *data_row_idx,
-                               kernel_type *data_rows,
+    kernel_get_working_set_ins(__global const kernel_type *val, __global const int *col_ind, __global const int *row_ptr, __global const int *data_row_idx,
+                               __global kernel_type *data_rows,
                                int m, int n) {
         KERNEL_LOOP(i, m) {
             int row = data_row_idx[i];
@@ -20,8 +20,8 @@ namespace svm_kernel {
         }
     }
 
-    __global__ void
-    kernel_RBF_kernel(const kernel_type *self_dot0, const kernel_type *self_dot1, kernel_type *dot_product, int m, int n,
+    __kernel void
+    kernel_RBF_kernel(__global const kernel_type *self_dot0, __global const kernel_type *self_dot1, __global kernel_type *dot_product, int m, int n,
                       kernel_type gamma) {
         //m rows of kernel matrix, where m is the working set size; n is the number of training instances
         KERNEL_LOOP(idx, m * n) {
@@ -31,8 +31,8 @@ namespace svm_kernel {
         }
     }
 
-    __global__ void
-    kernel_RBF_kernel(const int *self_dot0_idx, const kernel_type *self_dot1, kernel_type *dot_product, int m, int n,
+    __kernel void
+    kernel_RBF_kernel(__global const int *self_dot0_idx, __global const kernel_type *self_dot1, __global kernel_type *dot_product, int m, int n,
                       kernel_type gamma) {
         //compute m rows of kernel matrix, where m is the working set size and n is the number of training instances, according to idx
         KERNEL_LOOP(idx, m * n) {
@@ -42,10 +42,10 @@ namespace svm_kernel {
         }
     }
 
-    __global__ void
-    kernel_sum_kernel_values(const float_type *coef, int total_sv, const int *sv_start, const int *sv_count,
-                             const float_type *rho,
-                             const kernel_type *k_mat, float_type *dec_values, int n_classes, int n_instances) {
+    __kernel void
+    kernel_sum_kernel_values(__global const float_type *coef, __global int total_sv, __global const int *sv_start, __global const int *sv_count,
+                             __global const float_type *rho,
+                             __global const kernel_type *k_mat, float_type *dec_values, int n_classes, int n_instances) {
         KERNEL_LOOP(idx, n_instances) {
             int k = 0;
             int n_binary_models = n_classes * (n_classes - 1) / 2;
@@ -72,14 +72,14 @@ namespace svm_kernel {
         }
     }
 
-    __global__ void
-    kernel_poly_kernel(kernel_type *dot_product, kernel_type gamma, kernel_type coef0, int degree, int mn) {
+    __kernel void
+    kernel_poly_kernel(__global kernel_type *dot_product, __global kernel_type gamma, __global kernel_type coef0, int degree, int mn) {
         KERNEL_LOOP(idx, mn) {
             dot_product[idx] = powf(gamma * dot_product[idx] + coef0, degree);
         }
     }
 
-    __global__ void kernel_sigmoid_kernel(kernel_type *dot_product, kernel_type gamma, kernel_type coef0, int mn) {
+    __kernel void kernel_sigmoid_kernel(__global kernel_type *dot_product, __global kernel_type gamma, kernel_type coef0, int mn) {
         KERNEL_LOOP(idx, mn) {
             dot_product[idx] = tanhf(gamma * dot_product[idx] + coef0);
         }

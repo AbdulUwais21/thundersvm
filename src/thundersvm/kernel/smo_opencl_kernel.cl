@@ -8,10 +8,10 @@
 namespace svm_kernel {
 
     template<typename T>
-    __device__ int get_block_min(const T *values, int *index) {
-        int tid = threadIdx.x;
+    int get_block_min(const T *values, int *index) {
+        int tid = get_local_id(0);
         index[tid] = tid;
-        __syncthreads();
+        barrier(CLK_LOCAL_MEM_FENCE);
         //block size is always the power of 2
         for (int offset = blockDim.x / 2; offset > 0; offset >>= 1) {
             if (tid < offset) {
@@ -19,21 +19,20 @@ namespace svm_kernel {
                     index[tid] = index[tid + offset];
                 }
             }
-            __syncthreads();
+            barrier(CLK_LOCAL_MEM_FENCE);
         }
         return index[0];
     }
 
 
-    __global__ void
-    c_smo_solve_kernel(const int *label, float_type *f_val, float_type *alpha, float_type *alpha_diff,
-                       const int *working_set, int ws_size,
-                       float_type Cp, float_type Cn, const kernel_type *k_mat_rows, const kernel_type *k_mat_diag, int row_len,
+    __kernel void
+    c_smo_solve_kernel(__global const int *label, __global float_type *f_val, __global float_type *alpha, __global float_type *alpha_diff,
+                       __global const int *working_set, int ws_size,
+                       float_type Cp, float_type Cn, __global const kernel_type *k_mat_rows, __global const kernel_type *k_mat_diag, int row_len,
                        float_type eps,
-                       float_type *diff, int max_iter) {
+                       __global float_type *diff, int max_iter, __local int *shared_mem) {
         //"row_len" equals to the number of instances in the original training dataset.
         //allocate shared memory
-        extern __shared__ int shared_mem[];
         int *f_idx2reduce = shared_mem; //temporary memory for reduction
         float_type *f_val2reduce = (float_type *) &shared_mem[ws_size]; //f values used for reduction.
         float_type *alpha_i_diff = (float_type *) &shared_mem[ws_size + ws_size * sizeof(float_type) / sizeof(int)]; //delta alpha_i
@@ -41,14 +40,14 @@ namespace svm_kernel {
         kernel_type *kd = (kernel_type *) &alpha_j_diff[1]; // diagonal elements for kernel matrix
 
         //index, f value and alpha for each instance
-        int tid = threadIdx.x;
+        int tid = get_local_id(0);
         int wsi = working_set[tid];
         kd[tid] = k_mat_diag[wsi];
         float_type y = label[wsi];
         float_type f = f_val[wsi];
         float_type a = alpha[wsi];
         float_type aold = a;
-        __syncthreads();
+        barrier(CLK_LOCAL_MEM_FENCE);
         float_type local_eps;
         int numOfIter = 0;
         while (1) {
@@ -60,7 +59,7 @@ namespace svm_kernel {
             int i = get_block_min(f_val2reduce, f_idx2reduce);
             float_type up_value = f_val2reduce[i];
             kernel_type kIwsI = k_mat_rows[row_len * i + wsi];//K[i, wsi]
-            __syncthreads();
+            barrier(CLK_LOCAL_MEM_FENCE);
 
             if (is_I_low(a, y, Cp, Cn))
                 f_val2reduce[tid] = -f;
@@ -83,7 +82,7 @@ namespace svm_kernel {
                 diff[1] = numOfIter;
                 break;
             }
-            __syncthreads();
+            barrier(CLK_LOCAL_MEM_FENCE);
 
             //select j2 using second order heuristic
             if (-up_value > -f && (is_I_low(a, y, Cp, Cn))) {
@@ -99,7 +98,7 @@ namespace svm_kernel {
                 *alpha_i_diff = y > 0 ? Cp - a : a;
             if (tid == j2)
                 *alpha_j_diff = min(y > 0 ? a : Cn - a, (-up_value + f) / (kd[i] + kd[j2] - 2 * kIwsI));
-            __syncthreads();
+            barrier(CLK_LOCAL_MEM_FENCE);
             float_type l = min(*alpha_i_diff, *alpha_j_diff);
 
             if (tid == i)
@@ -115,15 +114,14 @@ namespace svm_kernel {
     }
 
 
-    __global__ void
-    nu_smo_solve_kernel(const int *label, float_type *f_values, float_type *alpha, float_type *alpha_diff,
-                        const int *working_set,
-                        int ws_size, float C, const kernel_type *k_mat_rows, const kernel_type *k_mat_diag, int row_len,
+    __kernel void
+    nu_smo_solve_kernel(__global const int *label, __global float_type *f_values, __global float_type *alpha, __global float_type *alpha_diff,
+                        __global const int *working_set,
+                        int ws_size, float C, __global const kernel_type *k_mat_rows, __global const kernel_type *k_mat_diag, int row_len,
                         float_type eps,
-                        float_type *diff, int max_iter) {
+                        __global float_type *diff, int max_iter, __local int* shared_mem) {
         //"row_len" equals to the number of instances in the original training dataset.
         //allocate shared memory
-        extern __shared__ int shared_mem[];
         int *f_idx2reduce = shared_mem; //temporary memory for reduction
         float_type *f_val2reduce = (float_type *) &shared_mem[ws_size]; //f values used for reduction.
         float_type *alpha_i_diff = (float_type *) &shared_mem[ws_size + ws_size * sizeof(float_type) / sizeof(int)]; //delta alpha_i
@@ -138,7 +136,7 @@ namespace svm_kernel {
         float_type f = f_values[wsi];
         float_type a = alpha[wsi];
         float_type aold = a;
-        __syncthreads();
+        barrier(CLK_LOCAL_MEM_FENCE);
         float_type local_eps;
         int numOfIter = 0;
         while (1) {
@@ -151,7 +149,7 @@ namespace svm_kernel {
             int ip = get_block_min(f_val2reduce, f_idx2reduce);
             float_type up_value_p = f_val2reduce[ip];
             kernel_type kIpwsI = k_mat_rows[row_len * ip + wsi];//K[i, wsi]
-            __syncthreads();
+            barrier(CLK_LOCAL_MEM_FENCE);
 
             //select I_up (y=-1)
             if (y < 0 && a > 0)
@@ -161,7 +159,7 @@ namespace svm_kernel {
             int in = get_block_min(f_val2reduce, f_idx2reduce);
             float_type up_value_n = f_val2reduce[in];
             kernel_type kInwsI = k_mat_rows[row_len * in + wsi];//K[i, wsi]
-            __syncthreads();
+            barrier(CLK_LOCAL_MEM_FENCE);
 
             //select I_low (y=+1)
             if (y > 0 && a > 0)
@@ -170,7 +168,7 @@ namespace svm_kernel {
                 f_val2reduce[tid] = INFINITY;
             int j1p = get_block_min(f_val2reduce, f_idx2reduce);
             float_type low_value_p = -f_val2reduce[j1p];
-            __syncthreads();
+            barrier(CLK_LOCAL_MEM_FENCE);
 
             //select I_low (y=-1)
             if (y < 0 && a < C)
@@ -195,7 +193,7 @@ namespace svm_kernel {
                 diff[1] = numOfIter;
                 break;
             }
-            __syncthreads();
+            barrier(CLK_LOCAL_MEM_FENCE);
 
             //select j2p using second order heuristic
             if (-up_value_p > -f && y > 0 && a > 0) {
@@ -206,7 +204,7 @@ namespace svm_kernel {
                 f_val2reduce[tid] = INFINITY;
             int j2p = get_block_min(f_val2reduce, f_idx2reduce);
             float_type f_val_j2p = f_val2reduce[j2p];
-            __syncthreads();
+            barrier(CLK_LOCAL_MEM_FENCE);
 
             //select j2n using second order heuristic
             if (-up_value_n > -f && y < 0 && a < C) {
@@ -286,8 +284,8 @@ namespace svm_kernel {
                                                      row_len, eps, diff.device_data(), max_iter);
     }
 
-    __global__ void
-    update_f_kernel(float_type *f, int ws_size, const float_type *alpha_diff, const kernel_type *k_mat_rows,
+    __kernel void
+    update_f_kernel(__global float_type *f, int ws_size, __global const float_type *alpha_diff, __global const kernel_type *k_mat_rows,
                     int n_instances) {
         //"n_instances" equals to the number of rows of the whole kernel matrix for both SVC and SVR.
         KERNEL_LOOP(idx, n_instances) {//one thread to update multiple fvalues.
