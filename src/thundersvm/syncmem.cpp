@@ -128,6 +128,15 @@ namespace thunder {
         device_ptr = data;
         own_device_data = false;
         head_ = HEAD::DEVICE;
+#elif USE_OPENCL
+        CHECK_NOTNULL(data);
+        if (own_device_data) {
+            OPENCL_CHECK(clReleaseMemObject(device_data()));
+            total_memory_size -= size_;
+        }
+        device_ptr = data;
+        own_device_data = false;
+        head_ = HEAD::DEVICE;
 #else
         NO_GPU;
 #endif
